@@ -87,6 +87,7 @@
 #define DDPF_RGB          0x00000040
 #define DDPF_LUMINANCE    0x00020000
 
+#define FOURCC_ATI1       0x31495441
 #define FOURCC_ATI2       0x32495441
 #define FOURCC_DXT1       0x31545844
 #define FOURCC_DXT3       0x33545844
@@ -288,7 +289,7 @@ typedef struct _DDSColors
 typedef struct _BC4Colors
 {
   unsigned char
-    r[8],
+    r[8];
 } BC4Colors;
 
 typedef struct _BC5Colors
@@ -2044,9 +2045,7 @@ static MagickBooleanType ReadBC4Pixels(Image *image,
   Quantum
     *q;
 
-  size_t
-    start_bit_g,
-    start_bit_r;
+  size_t start_bit_r;
 
   ssize_t
     i,
@@ -2838,6 +2837,13 @@ static Image *ReadDDSImage(const ImageInfo *image_info,ExceptionInfo *exception)
     {
       switch (dds_info.pixelformat.fourcc)
       {
+        case FOURCC_ATI1:
+        {
+          alpha_trait=UndefinedPixelTrait;
+          compression=BC4Compression;
+          decoder=ReadBC4;
+          break;
+        }
         case FOURCC_ATI2:
         {
           alpha_trait=UndefinedPixelTrait;
