@@ -51,6 +51,7 @@ typedef enum
   DWAACompression,
   DWABCompression,
   BC7Compression,
+  BC4Compression,
   BC5Compression,
   LERCCompression          /* https://github.com/Esri/lerc */
 } CompressionType;

@@ -87,6 +87,7 @@
 #define DDPF_RGB          0x00000040
 #define DDPF_LUMINANCE    0x00020000
 
+#define FOURCC_ATI1       0x31495441
 #define FOURCC_ATI2       0x32495441
 #define FOURCC_DXT1       0x31545844
 #define FOURCC_DXT3       0x33545844
@@ -284,6 +285,12 @@ typedef struct _DDSColors
     b[4],
     a[4];
 } DDSColors;
+
+typedef struct _BC4Colors
+{
+  unsigned char
+    r[8];
+} BC4Colors;
 
 typedef struct _BC5Colors
 {
@@ -2033,6 +2040,92 @@ static void ReadEndpoints(BC7Colors *endpoints,const unsigned char *block,
     }
 }
 
+static MagickBooleanType ReadBC4Pixels(Image* image,
+  const DDSInfo* magick_unused(dds_info), ExceptionInfo* exception)
+{
+  BC4Colors
+    colors = { { 0 } };
+
+  Quantum
+    * q;
+
+  size_t
+    start_bit_r;
+
+  ssize_t
+    i,
+    x,
+    y;
+
+  unsigned char
+    block[16],
+    mode;
+
+  magick_unreferenced(dds_info);
+  for (y = 0; y < (ssize_t)image->rows; y += 4)
+  {
+    for (x = 0; x < (ssize_t)image->columns; x += 4)
+    {
+      size_t
+        area;
+
+      ssize_t
+        count;
+
+      /* Get 4x4 patch of pixels to write on */
+      q = QueueAuthenticPixels(image, x, y, (size_t)
+        MagickMin(4, (ssize_t)image->columns - x), (size_t)
+        MagickMin(4, (ssize_t)image->rows - y), exception);
+
+      if (q == (Quantum*)NULL)
+        return(MagickFalse);
+
+      /* Read 8 bytes of data from the image */
+      count = ReadBlob(image, 8, block);
+      if ((count != 8) || (EOFBlob(image) != MagickFalse))
+        return(MagickFalse);
+
+      /* Get the mode of the block, 6 colors or 4 colors */
+      colors.r[0] = block[0];
+      colors.r[1] = block[1];
+
+      /* Red palette */
+      mode = 4;
+      if (colors.r[0] > colors.r[1])
+        mode = 6;
+      for (i = 0; i < mode; i++)
+      {
+        colors.r[i + 2] = (unsigned char)(((mode - i) * (float)colors.r[0] + (i + 1) *
+          (float)colors.r[1]) / ((float)(mode + 1)));
+      }
+      if (mode == 4)
+      {
+        colors.r[6] = 0;
+        colors.r[7] = 255;
+      }
+
+      /* Write the pixels */
+      area = (size_t)(MagickMin(MagickMin(4, (ssize_t)image->columns - x) *
+        MagickMin(4, (ssize_t)image->rows - y), 16));
+      start_bit_r = 16;
+      for (i = 0; i < (ssize_t)area; i++)
+      {
+        SetPixelRed(image, ScaleCharToQuantum(colors.r[GetBits(block,
+          &start_bit_r, 3)]), q);
+        SetPixelGreen(image, (Quantum)0, q);
+        SetPixelBlue(image, (Quantum)0, q);
+
+        q += (ptrdiff_t)GetPixelChannels(image);
+      }
+      if (SyncAuthenticPixels(image, exception) == MagickFalse)
+        return(MagickFalse);
+    }
+    if (EOFBlob(image) != MagickFalse)
+      return(MagickFalse);
+  }
+  return(MagickTrue);
+}
+
 static MagickBooleanType ReadBC5Pixels(Image *image,
   const DDSInfo *magick_unused(dds_info),ExceptionInfo *exception)
 {
@@ -2136,6 +2229,19 @@ static MagickBooleanType ReadBC5Pixels(Image *image,
       return(MagickFalse);
   }
   return(MagickTrue);
+}
+
+static MagickBooleanType ReadBC4(const ImageInfo* image_info, Image* image,
+  const DDSInfo* dds_info, const MagickBooleanType read_mipmaps,
+  ExceptionInfo* exception)
+{
+  if (ReadBC4Pixels(image, dds_info, exception) == MagickFalse)
+    return(MagickFalse);
+
+  if (read_mipmaps != MagickFalse)
+    return(ReadMipmaps(image_info, image, dds_info, ReadBC4Pixels, exception));
+  else
+    return(SkipMipmaps(image, dds_info, 16, exception));
 }
 
 static MagickBooleanType ReadBC5(const ImageInfo *image_info,Image *image,
@@ -2758,6 +2864,13 @@ static Image *ReadDDSImage(const ImageInfo *image_info,ExceptionInfo *exception)
     {
       switch (dds_info.pixelformat.fourcc)
       {
+        case FOURCC_ATI1:
+        {
+          alpha_trait = UndefinedPixelTrait;
+          compression = BC4Compression;
+          decoder = ReadBC4;
+          break;
+        }
         case FOURCC_ATI2:
         {
           alpha_trait=UndefinedPixelTrait;
@@ -2863,6 +2976,13 @@ static Image *ReadDDSImage(const ImageInfo *image_info,ExceptionInfo *exception)
               alpha_trait = BlendPixelTrait;
               compression = DXT5Compression;
               decoder = ReadDXT5;
+              break;
+            }
+            case DXGI_FORMAT_BC4_UNORM:
+            {
+              alpha_trait = UndefinedPixelTrait;
+              compression = BC4Compression;
+              decoder = ReadBC4;
               break;
             }
             case DXGI_FORMAT_BC5_UNORM:
